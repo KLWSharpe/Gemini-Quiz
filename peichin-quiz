@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>圖文製研所</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;900&family=Noto+Sans+TC:wght@500;700;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* 讓 scroll 不會跳太醜 */
+    .no-scrollbar::-webkit-scrollbar{display:none}
+    .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+  </style>
+</head>
+
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <!-- React 18 UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <!-- Babel (讓你可以直接貼 JSX 在單檔) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!--
+    ✅ 你可以在瀏覽器 console 設定：
+      window.GEMINI_API_KEY = "你的key"
+    或者你也可以把 key 直接寫在下面 callAI 裡（不建議公開 repo 這樣做）。
+  -->
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    const App = () => {
+      // --- Constants ---
+      const SIZES = {
+        square: { w: 1080, h: 1080, label: "正方形 (1:1)", icon: "h-6 w-6" },
+        portrait: { w: 1080, h: 1350, label: "IG 貼文 (4:5)", icon: "h-8 w-6" },
+        story: { w: 1080, h: 1920, label: "限動 (9:16)", icon: "h-10 w-6" }
+      };
+
+      const STYLE_THEMES = {
+        'default': { label: "預設簡約", color: 'bg-gray-100 border-gray-200 text-gray-600' },
+        'yaya': { label: "Yaya 風格", color: 'bg-pink-100 border-pink-300 text-pink-700' }
+      };
+
+      const LAYOUTS = {
+        'cover-a': { label: "封面 A (經典)", type: 'cover' },
+        'cover-b': { label: "封面 B (滿版)", type: 'cover' },
+        'content-a': { label: "內容 A (簡約)", type: 'content' },
+        'content-b': { label: "內容 B (卡片)", type: 'content' },
+        'list-a': { label: "清單 A (條列)", type: 'list' },
+        'list-b': { label: "清單 B (方塊)", type: 'list' },
+        'quote-a': { label: "語錄 A (明體)", type: 'quote' },
+        'quote-b': { label: "語錄 B (現代)", type: 'quote' },
+        'cta-a': { label: "結尾 A (按鈕)", type: 'cta' },
+        'cta-b': { label: "結尾 B (文字)", type: 'cta' }
+      };
+
+      const LOGO_POSITIONS = [
+        { id: 'top-left', label: '左上' },
+        { id: 'top-center', label: '中上' },
+        { id: 'top-right', label: '右上' },
+        { id: 'bottom-left', label: '左下' },
+        { id: 'bottom-center', label: '中下' },
+        { id: 'bottom-right', label: '右下' },
+      ];
+
+      // High Quality Unsplash ID Library
+      const IMAGE_LIBRARY = {
+        default: ["1493612276216-ee3925520721", "1497366216548-37526070297c", "1557683316-973673baf926", "1486406146926-c627a92ad1ab", "1507525428034-b723cf961d3e", "1519389950473-47ba0277781c"],
+        business: ["1497366216548-37526070297c", "1553877602-b9fb4728136f", "1542744173-8e7e53415bb0", "1521737604893-d14cc237f11d", "1486406146926-c627a92ad1ab"],
+        nature: ["1470071459604-3b5ec3a7fe05", "1441974231531-c6227db76b6e", "1472214103451-9374bd1c798e", "1501854140884-074cf2a1a7e2"],
+        coffee: ["1495474472287-4d71bcdd2085", "1511920170033-f8396924c348", "1497935586351-b67a49e012bf", "1509042239860-f550ce710b93"],
+        minimal: ["1494438639946-1ebd1d20bf85", "1493612276216-ee3925520721", "1507525428034-b723cf961d3e", "1508615039623-a25605d2b022"],
+        tech: ["1518770660439-4636190af475", "1519389950473-47ba0277781c", "1550751827-4bd374c3f58b", "1526374965328-7f61d4dc18c5"],
+        travel: ["1476514525535-07fb3b4ae5f1", "1488085061387-422e29b40d80", "1504609773096-1040514b275d", "1503220317375-aa3e10981c3f"]
+      };
+
+      // --- State Management ---
+      const [leftTab, setLeftTab] = useState('global-ai');
+
+      const [globalConfig, setGlobalConfig] = useState({
+        brand: "老獅說・圖文製研所",
+        logoImage: null,
+        accentColor: "#fbbf24",
+        overlayOpacity: 0.4,
+        textAlign: 'left',
+        sizeMode: 'square',
+        titleFontSize: 80,
+        bodyFontSize: 42,
+        fontTheme: 'serif',
+        logoPosition: 'top-center',
+        styleTheme: 'default'
+      });
+
+      const [slides, setSlides] = useState([
+        {
+          id: 'init-1',
+          layout: 'cover-a',
+          title1: "核心穿搭：三層原則",
+          title2: "保暖、吸濕、防水缺一不可",
+          body1: "滑雪新手必看的保暖秘籍",
+          body2: "收藏這篇，下次去雪場不挨凍",
+          bgUrl: "https://images.unsplash.com/photo-1493612276216-ee3925520721?q=80&w=1080"
+        }
+      ]);
+
+      const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+      const [bgKeyword, setBgKeyword] = useState('');
+      const [isSearchingBg, setIsSearchingBg] = useState(false);
+      const [isDownloading, setIsDownloading] = useState(false);
+
+      // --- History (Undo/Redo) ---
+      const [history, setHistory] = useState([]);
+      const [historyStep, setHistoryStep] = useState(-1);
+      const isUndoable = historyStep > 0;
+      const isRedoable = historyStep < history.length - 1;
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        if (history.length === 0) {
+          const initialState = {
+            slides: JSON.parse(JSON.stringify(slides)),
+            globalConfig: { ...globalConfig }
+          };
+          setHistory([initialState]);
+          setHistoryStep(0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+
+      const updateStateWithHistory = (newSlides, newConfig) => {
+        const nextState = {
+          slides: JSON.parse(JSON.stringify(newSlides)),
+          globalConfig: { ...newConfig }
+        };
+        const newHistory = history.slice(0, historyStep + 1);
+        newHistory.push(nextState);
+        if (newHistory.length > 50) newHistory.shift();
+        setHistory(newHistory);
+        setHistoryStep(newHistory.length - 1);
+        setSlides(newSlides);
+        setGlobalConfig(newConfig);
+      };
+
+      const handleUndo = () => {
+        if (!isUndoable) return;
+        const prevStep = historyStep - 1;
+        const prevState = history[prevStep];
+        setSlides(prevState.slides);
+        setGlobalConfig(prevState.globalConfig);
+        setHistoryStep(prevStep);
+      };
+
+      const handleRedo = () => {
+        if (!isRedoable) return;
+        const nextStep = historyStep + 1;
+        const nextState = history[nextStep];
+        setSlides(nextState.slides);
+        setGlobalConfig(nextState.globalConfig);
+        setHistoryStep(nextStep);
+      };
+
+      // --- AI State ---
+      const [globalChatInput, setGlobalChatInput] = useState('');
+      const [isGlobalTyping, setIsGlobalTyping] = useState(false);
+      const [globalMessages, setGlobalMessages] = useState([
+        {
+          id: 1,
+          role: 'assistant',
+          text: '嗨！我是你的圖文總策劃。請告訴我你想做什麼主題？（例如：新手露營清單、如何面對焦慮...）\n我會幫你規劃整套貼文的結構。',
+          proposals: null
+        }
+      ]);
+      const [hasGenerated, setHasGenerated] = useState(false);
+      const [isGlobalApplied, setIsGlobalApplied] = useState(false);
+      const globalChatContainerRef = useRef(null);
+
+      const [slideChatInput, setSlideChatInput] = useState('');
+      const [isSlideChatTyping, setIsSlideChatTyping] = useState(false);
+      const [chatHistoryMap, setChatHistoryMap] = useState({});
+      const [previewSlide, setPreviewSlide] = useState(null);
+
+      const mainSvgRef = useRef(null);
+      const slideChatContainerRef = useRef(null);
+      const slideTextareaRef = useRef(null);
+      const globalTextareaRef = useRef(null);
+
+      const currentSize = SIZES[globalConfig.sizeMode];
+      const activeSlide = previewSlide || slides[currentSlideIndex];
+
+      // Auto Scroll
+      useEffect(() => {
+        if (slideChatContainerRef.current) {
+          setTimeout(() => {
+            slideChatContainerRef.current.scrollTo({ top: slideChatContainerRef.current.scrollHeight, behavior: 'smooth' });
+          }, 100);
+        }
+      }, [chatHistoryMap, currentSlideIndex, isSlideChatTyping]);
+
+      useEffect(() => {
+        if (globalChatContainerRef.current) {
+          setTimeout(() => {
+            globalChatContainerRef.current.scrollTo({ top: globalChatContainerRef.current.scrollHeight, behavior: 'smooth' });
+          }, 100);
+        }
+      }, [globalMessages, isGlobalTyping]);
+
+      // Textarea resize
+      useEffect(() => {
+        if (slideTextareaRef.current) {
+          slideTextareaRef.current.style.height = 'auto';
+          slideTextareaRef.current.style.height = `${Math.min(slideTextareaRef.current.scrollHeight, 100)}px`;
+        }
+      }, [slideChatInput]);
+
+      useEffect(() => {
+        if (globalTextareaRef.current) {
+          globalTextareaRef.current.style.height = 'auto';
+          globalTextareaRef.current.style.height = `${Math.min(globalTextareaRef.current.scrollHeight, 120)}px`;
+        }
+      }, [globalChatInput]);
+
+      // Wrappers using history
+      const handleGlobalConfigChange = (key, value) => {
+        updateStateWithHistory(slides, { ...globalConfig, [key]: value });
+      };
+
+      const handleSlideContentChange = (key, value) => {
+        if (previewSlide) {
+          const newSlide = { ...previewSlide, [key]: value };
+          const newSlides = [...slides];
+          newSlides[currentSlideIndex] = newSlide;
+          updateStateWithHistory(newSlides, globalConfig);
+          setPreviewSlide(null);
+        } else {
+          const newSlides = [...slides];
+          newSlides[currentSlideIndex] = { ...newSlides[currentSlideIndex], [key]: value };
+          setSlides(newSlides);
+        }
+      };
+
+      const saveSlideContentToHistory = () => {
+        if (!previewSlide) {
+          updateStateWithHistory(slides, globalConfig);
+        }
+      };
+
+      const handleBgUrlChange = (value) => {
+        const newSlides = [...slides];
+        newSlides[currentSlideIndex] = { .
