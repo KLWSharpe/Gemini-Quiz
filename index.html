@@ -2,259 +2,1639 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>圖文製研所</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>圖文製研所（免打包 GitHub Pages 版）</title>
 
-  <!-- Tailwind CDN -->
+  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Google Fonts -->
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;900&family=Noto+Sans+TC:wght@500;700;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@600;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+
+  <!-- Lucide (vanilla) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- React 18 UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- Babel (for JSX in browser) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <style>
-    /* 讓 scroll 不會跳太醜 */
-    .no-scrollbar::-webkit-scrollbar{display:none}
-    .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+    html, body { height: 100%; }
+    body { margin: 0; }
+    /* Better slider look on Safari */
+    input[type="range"] { -webkit-appearance: none; appearance: none; }
   </style>
 </head>
 
-<body class="bg-gray-50">
+<body class="bg-gray-50 text-gray-800">
   <div id="root"></div>
 
-  <!-- React 18 UMD -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-
-  <!-- Babel (讓你可以直接貼 JSX 在單檔) -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!--
-    ✅ 你可以在瀏覽器 console 設定：
-      window.GEMINI_API_KEY = "你的key"
-    或者你也可以把 key 直接寫在下面 callAI 裡（不建議公開 repo 這樣做）。
-  -->
-
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
+    const { useState, useRef, useEffect, useMemo } = React;
 
-    const App = () => {
-      // --- Constants ---
-      const SIZES = {
-        square: { w: 1080, h: 1080, label: "正方形 (1:1)", icon: "h-6 w-6" },
-        portrait: { w: 1080, h: 1350, label: "IG 貼文 (4:5)", icon: "h-8 w-6" },
-        story: { w: 1080, h: 1920, label: "限動 (9:16)", icon: "h-10 w-6" }
+    /***********************
+     * Utilities
+     ***********************/
+    const uid = () => String(Date.now() + Math.floor(Math.random() * 100000));
+    const cleanText = (text) => (typeof text === 'string' ? text.replace(/\*\*/g, '').replace(/__/g, '').replace(/^#+\s/, '') : '');
+    const renderHtmlText = (text) => ({ __html: (typeof text === 'string' ? text.replace(/\n/g, '<br/>') : '') });
+
+    const extractJson = (text) => {
+      try {
+        if (!text || typeof text !== 'string') return null;
+        // try direct
+        try { return JSON.parse(text); } catch (e) {}
+        // try code fence-ish
+        const m1 = text.match(/```json\s*([\s\S]*?)\s*```/);
+        if (m1) return JSON.parse(m1[1]);
+        const m2 = text.match(/```\s*([\s\S]*?)\s*```/);
+        if (m2) return JSON.parse(m2[1]);
+        // try array/object region
+        const m3 = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (m3) return JSON.parse(m3[0]);
+        const m4 = text.match(/\{[\s\S]*\}/);
+        if (m4) return JSON.parse(m4[0]);
+        return null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    /***********************
+     * Constants
+     ***********************/
+    const SIZES = {
+      square:   { w: 1080, h: 1080, label: "正方形 (1:1)", iconClass: "h-6 w-6" },
+      portrait: { w: 1080, h: 1350, label: "IG 貼文 (4:5)", iconClass: "h-8 w-6" },
+      story:    { w: 1080, h: 1920, label: "限動 (9:16)", iconClass: "h-10 w-6" }
+    };
+
+    const LAYOUTS = {
+      "cover-a":   { label: "封面 A (經典)", type: "cover" },
+      "cover-b":   { label: "封面 B (滿版)", type: "cover" },
+      "content-a": { label: "內容 A (簡約)", type: "content" },
+      "content-b": { label: "內容 B (卡片)", type: "content" },
+      "split-a":   { label: "圖文 A (雜誌)", type: "photo" },
+      "photo-b":   { label: "圖文 B (圖卡)", type: "photo" },
+      "list-a":    { label: "清單 A (條列)", type: "list" },
+      "list-b":    { label: "清單 B (方塊)", type: "list" },
+      "quote-a":   { label: "語錄 A (明體)", type: "quote" },
+      "quote-b":   { label: "語錄 B (現代)", type: "quote" },
+      "cta-a":     { label: "結尾 A (按鈕)", type: "cta" },
+      "cta-b":     { label: "結尾 B (文字)", type: "cta" },
+    };
+
+    const LOGO_POSITIONS = [
+      { id: "top-left", label: "左上" },
+      { id: "top-center", label: "中上" },
+      { id: "top-right", label: "右上" },
+      { id: "bottom-left", label: "左下" },
+      { id: "bottom-center", label: "中下" },
+      { id: "bottom-right", label: "右下" },
+    ];
+
+    const FONTS = [
+      { id: "sans", label: "黑體 (現代)", family: "'Noto Sans TC', sans-serif" },
+      { id: "serif", label: "明體 (優雅)", family: "'Noto Serif TC', serif" },
+      { id: "rounded", label: "圓體 (可愛)", family: "'Zen Maru Gothic', sans-serif" },
+    ];
+
+    // Keyword mapping (kept simple + stable)
+    const KEYWORD_MAPPING = {
+      baby: ['baby','infant','newborn','toddler','child','kid','寶寶','嬰兒','孩子','親子'],
+      business: ['business','office','work','meeting','finance','商務','辦公','職場','會議'],
+      coffee: ['coffee','cafe','latte','espresso','咖啡','下午茶','拿鐵'],
+      nature: ['nature','forest','mountain','sea','beach','sky','自然','風景','山','海','森林','天空'],
+      tech: ['tech','technology','ai','code','digital','科技','人工智慧','程式','數位'],
+      minimal: ['minimal','clean','white','simple','極簡','簡約','留白','白'],
+      people: ['people','person','team','group','人','人物','團隊'],
+      city: ['city','urban','street','night','城市','街景','夜景'],
+      food: ['food','meal','restaurant','cake','sweet','美食','食物','甜點','蛋糕'],
+      fashion: ['fashion','style','clothes','makeup','時尚','穿搭','美妝'],
+      pet: ['pet','dog','cat','animal','寵物','狗','貓','動物'],
+      sport: ['sport','fitness','gym','yoga','運動','健身','瑜伽'],
+      winter: ['winter','snow','cold','冬天','雪','寒冷'],
+      christmas: ['christmas','xmas','santa','gift','聖誕','禮物','耶誕'],
+      background: ['background','texture','pattern','wall','背景','紋理','材質']
+    };
+
+    // Unsplash photo ids (small curated set; works without API)
+    const IMAGE_LIBRARY = {
+      default:   ["1493612276216-ee3925520721","1557683316-973673baf926","1519389950473-47ba0277781c","1486870591958-3b958fe789f5","1508615039623-a25605d2b022"],
+      baby:      ["1519689684058-324335c77e92","1522771739844-6a9f6d5f14af","1544126335-849747090476","1573339568202-93900040544c"],
+      business:  ["1497366216548-37526070297c","1553877602-b9fb4728136f","1521737604893-d14cc237f11d","1497215728101-856f4ea42174"],
+      coffee:    ["1495474472287-4d71bcdd2085","1511920170033-f8396924c348","1509042239860-f550ce710b93","1461023058943-48dbf9450951"],
+      nature:    ["1470071459604-3b5ec3a7fe05","1472214103451-9374bd1c798e","1469474968028-af502450e3a0","1426604966848-d7adac402bff"],
+      tech:      ["1518770660439-4636190af475","1550751827-4bd374c3f58b","1526374965328-7f61d4dc18c5","1488590528505-98d2b5aba04b"],
+      minimal:   ["1494438639946-1ebd1d20bf85","1507525428034-b723cf961d3e","1484101403233-56bf40f462f2","1499244518942-7a5f25b0c6c4"],
+      people:    ["1517841905240-472988babdf9","1529626455594-4ff0802cfb7e","1539571696357-5a69c17a67c6","1507003211169-0a1dd7228f2d"],
+      city:      ["1449824913935-16afe9e2a26d","1480714378408-67cf0d13bc1b","1477959858617-67f85cf4f1df","1477346611705-65d1883cee1e"],
+      food:      ["1504674900247-0877df9cc836","1567620905732-2d1ec7ab7445","1482049016688-2d3e1b311543","1476224203421-9ac39bcb3327"],
+      fashion:   ["1483985988355-763728e1935b","1515886657613-9f3515b0c78f","1509631179647-363417edd998","1532453288672-3a27e9be9efd"],
+      pet:       ["1517849845537-4d257902454a","1537151608828-ea2b11777ee8","1543466835-00a7907e9de1","1587300003388-59208cc962cb"],
+      sport:     ["1517836357463-d25dfeac3438","1534438327276-14e5300c3a48","1571019614242-c5c5dee9f50b","1434608519389-88c95a27bf43"],
+      winter:    ["1483921020237-2ff7d621aa25","1491002052546-bf38f186af56","1516471477206-6a125e51f405","1518182177546-076726645f5d"],
+      christmas: ["1512389142660-9c87db07648e","1576606312900-29bcd83e4824","1603793532749-6e75b781940d","1514920184395-7b21435c5cda"],
+      background:["1484101403233-56bf40f462f2","1487700160041-babef9c3cb55","1502082553048-f009c371b9b5","1550684848-fac1c5b4e853"],
+    };
+
+    const COLORS = [
+      "#ffffff","#000000","#fbbf24","#f87171","#60a5fa","#34d399","#a78bfa","#f472b6",
+      "#9ca3af","#4b5563","#1e3a8a","#be123c","#047857","#b45309","#7c2d12","#831843",
+    ];
+
+    const unsplash = (id, w=2400, q=95) => `https://images.unsplash.com/photo-${id}?q=${q}&w=${w}&auto=format&fit=crop`;
+
+    const pickImageByKeyword = (keyword) => {
+      const kw = (keyword || "").toLowerCase().trim();
+      let pool = [];
+
+      for (const [cat, words] of Object.entries(KEYWORD_MAPPING)) {
+        if (words.some(w => kw.includes(w))) {
+          if (IMAGE_LIBRARY[cat]) pool.push(...IMAGE_LIBRARY[cat]);
+        }
+      }
+      if (pool.length === 0) pool = IMAGE_LIBRARY.default;
+      const id = pool[Math.floor(Math.random() * pool.length)] || IMAGE_LIBRARY.default[0];
+      return unsplash(id, 2400, 95);
+    };
+
+    /***********************
+     * Gemini caller (optional)
+     * - GitHub Pages can't hide keys, so we store key in localStorage (user pastes once).
+     ***********************/
+    async function callGemini(apiKey, payload) {
+      if (!apiKey) return { text: "尚未設定 API Key（左側 AI 面板可貼上）。" };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${encodeURIComponent(apiKey)}`;
+      try {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return { text: text || "" };
+      } catch (e) {
+        console.error(e);
+        return { text: "連線錯誤，請稍後再試。" };
+      }
+    }
+
+    /***********************
+     * Lucide helper in React
+     ***********************/
+    function LIcon({ name, size=18, className="" }) {
+      const ref = useRef(null);
+      useEffect(() => {
+        // createIcons scans DOM; safe to call lightly
+        try {
+          if (window.lucide) window.lucide.createIcons();
+        } catch (e) {}
+      });
+      return (
+        <i
+          ref={ref}
+          data-lucide={name}
+          className={className}
+          style={{ width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+        />
+      );
+    }
+
+    /***********************
+     * SlideSVG
+     ***********************/
+    function SlideSVG({ data, size, config }) {
+      const baseWidth = 1080;
+      const scale = size.w / baseWidth;
+      const baseHeight = size.h / scale;
+
+      const globalFontFamily = (FONTS.find(f => f.id === config.fontTheme) || FONTS[0]).family;
+
+      const overlayValue = (typeof config.overlayValue === "number") ? config.overlayValue : 40;
+      const overlayColor = overlayValue >= 0 ? "black" : "white";
+      const opacity = Math.abs(overlayValue) / 100;
+
+      const textColor = config.textColor || "#ffffff";
+      const textShadow = textColor === "#000000" ? "none" : "2px 2px 4px rgba(0,0,0,0.6)";
+      const lineHeight = data.lineHeight || config.lineHeight || 1.5;
+
+      const titleSize = config.titleFontSize || 80;
+      const bodySize = config.bodyFontSize || 42;
+
+      // styleTheme: default / yaya / chenyuluoyan (keep simple)
+      let currentFontFamily = globalFontFamily;
+      if (config.styleTheme === "yaya") currentFontFamily = "'Zen Maru Gothic', sans-serif";
+      // Note: 'ChenYuluoyan' font requires extra CDN/font-face; keep fallback to serif to stay stable
+      if (config.styleTheme === "chenyuluoyan") currentFontFamily = "'Noto Serif TC', serif";
+
+      const getFS = (key, def) => (data[`${key}FontSize`] != null ? data[`${key}FontSize`] : def);
+      const getLH = (key) => (data[`${key}LineHeight`] != null ? data[`${key}LineHeight`] : lineHeight);
+      const getLS = (key) => (data[`${key}LetterSpacing`] != null ? data[`${key}LetterSpacing`] : 0);
+      const getColor = (key) => (data[`${key}Color`] != null ? data[`${key}Color`] : "inherit");
+
+      const getEffectStyle = (key) => {
+        const effect = data[`${key}Effect`];
+        if (effect === "shadow") return "4px 4px 0px rgba(0,0,0,0.5)";
+        if (effect === "blur") return "0 0 10px rgba(0,0,0,0.8)";
+        if (effect === "outline") return "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000";
+        return textShadow;
       };
 
-      const STYLE_THEMES = {
-        'default': { label: "預設簡約", color: 'bg-gray-100 border-gray-200 text-gray-600' },
-        'yaya': { label: "Yaya 風格", color: 'bg-pink-100 border-pink-300 text-pink-700' }
+      const getStyle = (key, defaultSize, weight) => ({
+        fontSize: `${getFS(key, defaultSize)}px`,
+        fontWeight: weight,
+        fontFamily: currentFontFamily,
+        lineHeight: getLH(key),
+        letterSpacing: `${getLS(key)}em`,
+        color: getColor(key),
+        textShadow: getEffectStyle(key),
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      });
+
+      const t1Style = getStyle("title1", titleSize, 900);
+      const t2Style = getStyle("title2", titleSize * 0.7, 700);
+      const b1Style = getStyle("body1", bodySize, 400);
+      const b2Style = getStyle("body2", bodySize * 0.8, 400);
+
+      const containerStyle = {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        padding: "80px",
+        boxSizing: "border-box",
+        color: textColor,
+        textShadow,
+        position: "relative",
+        fontFamily: currentFontFamily,
       };
 
-      const LAYOUTS = {
-        'cover-a': { label: "封面 A (經典)", type: 'cover' },
-        'cover-b': { label: "封面 B (滿版)", type: 'cover' },
-        'content-a': { label: "內容 A (簡約)", type: 'content' },
-        'content-b': { label: "內容 B (卡片)", type: 'content' },
-        'list-a': { label: "清單 A (條列)", type: 'list' },
-        'list-b': { label: "清單 B (方塊)", type: 'list' },
-        'quote-a': { label: "語錄 A (明體)", type: 'quote' },
-        'quote-b': { label: "語錄 B (現代)", type: 'quote' },
-        'cta-a': { label: "結尾 A (按鈕)", type: 'cta' },
-        'cta-b': { label: "結尾 B (文字)", type: 'cta' }
+      const logoStyle = {
+        position: "absolute",
+        fontSize: `${config.brandFontSize || 28}px`,
+        fontWeight: 700,
+        color: config.accentColor || "#fbbf24",
+        letterSpacing: "0.1em",
+        zIndex: 10,
+        textShadow: "1px 1px 2px rgba(0,0,0,0.8)",
+        whiteSpace: "nowrap",
+        fontFamily: currentFontFamily,
       };
 
-      const LOGO_POSITIONS = [
-        { id: 'top-left', label: '左上' },
-        { id: 'top-center', label: '中上' },
-        { id: 'top-right', label: '右上' },
-        { id: 'bottom-left', label: '左下' },
-        { id: 'bottom-center', label: '中下' },
-        { id: 'bottom-right', label: '右下' },
-      ];
+      const pos = config.logoPosition || "top-center";
+      if (pos === "top-left") Object.assign(logoStyle, { top: "60px", left: "60px" });
+      else if (pos === "top-center") Object.assign(logoStyle, { top: "60px", left: "50%", transform: "translateX(-50%)" });
+      else if (pos === "top-right") Object.assign(logoStyle, { top: "60px", right: "60px" });
+      else if (pos === "bottom-left") Object.assign(logoStyle, { bottom: "60px", left: "60px" });
+      else if (pos === "bottom-center") Object.assign(logoStyle, { bottom: "60px", left: "50%", transform: "translateX(-50%)" });
+      else if (pos === "bottom-right") Object.assign(logoStyle, { bottom: "60px", right: "60px" });
 
-      // High Quality Unsplash ID Library
-      const IMAGE_LIBRARY = {
-        default: ["1493612276216-ee3925520721", "1497366216548-37526070297c", "1557683316-973673baf926", "1486406146926-c627a92ad1ab", "1507525428034-b723cf961d3e", "1519389950473-47ba0277781c"],
-        business: ["1497366216548-37526070297c", "1553877602-b9fb4728136f", "1542744173-8e7e53415bb0", "1521737604893-d14cc237f11d", "1486406146926-c627a92ad1ab"],
-        nature: ["1470071459604-3b5ec3a7fe05", "1441974231531-c6227db76b6e", "1472214103451-9374bd1c798e", "1501854140884-074cf2a1a7e2"],
-        coffee: ["1495474472287-4d71bcdd2085", "1511920170033-f8396924c348", "1497935586351-b67a49e012bf", "1509042239860-f550ce710b93"],
-        minimal: ["1494438639946-1ebd1d20bf85", "1493612276216-ee3925520721", "1507525428034-b723cf961d3e", "1508615039623-a25605d2b022"],
-        tech: ["1518770660439-4636190af475", "1519389950473-47ba0277781c", "1550751827-4bd374c3f58b", "1526374965328-7f61d4dc18c5"],
-        travel: ["1476514525535-07fb3b4ae5f1", "1488085061387-422e29b40d80", "1504609773096-1040514b275d", "1503220317375-aa3e10981c3f"]
+      const LogoEl = config.logoImage
+        ? <img src={config.logoImage} style={{ ...logoStyle, width: "auto", height: "80px", objectFit: "contain" }} alt="Logo"/>
+        : <div style={logoStyle}>{config.brand || "品牌"}</div>;
+
+      const layout = data.layout || "cover-a";
+
+      let content = null;
+
+      if (layout === "split-a") {
+        content = (
+          <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{
+              position: "absolute", top: "5%", left: "5%", width: "90%", height: "45%",
+              zIndex: 0, overflow: "hidden", borderRadius: "8px"
+            }}>
+              {data.innerImage
+                ? <img src={data.innerImage} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="inner"/>
+                : <div style={{ width: "100%", height: "100%", background: "rgba(255,255,255,0.12)", display:"flex", alignItems:"center", justifyContent:"center", color:"rgba(255,255,255,0.6)", fontSize:"36px" }}>No Image</div>
+              }
+            </div>
+
+            <div style={{ marginTop: "auto", height: "48%", display: "flex", flexDirection: "column", justifyContent: "flex-start", padding: "0 80px 80px 80px" }}>
+              <div style={{ width: "40px", height: "4px", backgroundColor: config.accentColor || "#fbbf24", marginBottom: "24px" }}></div>
+              <div style={t1Style} dangerouslySetInnerHTML={renderHtmlText(data.title1)} />
+              <div style={{ ...b1Style, opacity: 0.92 }} dangerouslySetInnerHTML={renderHtmlText(data.body1)} />
+            </div>
+          </div>
+        );
+      }
+
+      else if (layout === "photo-b") {
+        content = (
+          <div style={{ ...containerStyle, justifyContent:"center", alignItems:"center" }}>
+            <div style={{
+              width:"85%", height:"85%", backgroundColor:"white",
+              borderRadius:"24px", boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+              overflow:"hidden", display:"flex", flexDirection:"column"
+            }}>
+              <div style={{ flex:"1.5", position:"relative", overflow:"hidden" }}>
+                {data.innerImage
+                  ? <img src={data.innerImage} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="inner"/>
+                  : <div style={{ width:"100%", height:"100%", backgroundColor:"#f0f0f0", display:"flex", alignItems:"center", justifyContent:"center", color:"#bbb" }}>No Image</div>
+                }
+              </div>
+              <div style={{ flex:"1", padding:"40px 50px", display:"flex", flexDirection:"column", justifyContent:"center" }}>
+                <div style={{ ...t1Style, color:"#111", marginBottom:"18px", textShadow:"none" }} dangerouslySetInnerHTML={renderHtmlText(data.title1)} />
+                <div style={{ ...b1Style, color:"#333", textShadow:"none" }} dangerouslySetInnerHTML={renderHtmlText(data.body1)} />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      else if (layout.startsWith("quote")) {
+        const isB = layout === "quote-b";
+        content = (
+          <div style={{ ...containerStyle, justifyContent:"center", alignItems:"center", textAlign:"center", padding:"120px" }}>
+            {isB ? (
+              <div style={{ borderLeft:`10px solid ${config.accentColor || "#fbbf24"}`, paddingLeft:"60px", textAlign:"left" }}>
+                <div style={{ ...t1Style, fontStyle:"italic", marginBottom:"36px" }} dangerouslySetInnerHTML={renderHtmlText(data.body1 || data.title1)} />
+                <div style={{ ...t2Style, opacity:0.85, textTransform:"uppercase" }} dangerouslySetInnerHTML={renderHtmlText(data.title2 || data.body2)} />
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize:"120px", height:"60px", lineHeight:0, fontFamily:"serif", color: config.accentColor || "#fbbf24", opacity:0.85 }}>“</div>
+                <div style={{ ...t1Style, fontFamily:"'Noto Serif TC', serif", margin:"40px 0" }} dangerouslySetInnerHTML={renderHtmlText(data.body1 || data.title1)} />
+                <div style={{ width:"60px", height:"2px", backgroundColor:"white", margin:"30px auto", opacity:0.5 }}></div>
+                <div style={{ ...t2Style, fontFamily:"'Noto Serif TC', serif" }} dangerouslySetInnerHTML={renderHtmlText(data.title2 || data.body2)} />
+              </>
+            )}
+          </div>
+        );
+      }
+
+      else if (layout.startsWith("cover")) {
+        const isB = layout === "cover-b";
+        content = (
+          <div style={{
+            ...containerStyle,
+            justifyContent:"center",
+            alignItems: isB ? "flex-start" : "center",
+            textAlign: isB ? "left" : "center",
+            paddingLeft: isB ? "100px" : "80px",
+            paddingRight: isB ? "100px" : "80px",
+          }}>
+            <div style={{ ...t1Style, margin:"0 0 18px 0", borderLeft: isB ? `16px solid ${config.accentColor || "#fbbf24"}` : "none", paddingLeft: isB ? "40px" : 0 }}
+              dangerouslySetInnerHTML={renderHtmlText(data.title1)}
+            />
+            <div style={{ ...t2Style, margin:"0 0 40px 0", paddingLeft: isB ? "56px" : 0, opacity:0.9 }}
+              dangerouslySetInnerHTML={renderHtmlText(data.title2)}
+            />
+            {!isB && <div style={{ width:"80px", height:"8px", backgroundColor: config.accentColor || "#fbbf24", marginBottom:"40px" }}></div>}
+            <div style={{ paddingLeft: isB ? "56px" : 0 }}>
+              <div style={{ ...b1Style, opacity:0.92, margin:0 }} dangerouslySetInnerHTML={renderHtmlText(data.body1)} />
+              <div style={{ ...b2Style, opacity:0.82, margin:"15px 0 0 0", paddingLeft: isB ? "42px" : 0 }} dangerouslySetInnerHTML={renderHtmlText(data.body2)} />
+            </div>
+          </div>
+        );
+      }
+
+      else if (layout.startsWith("content")) {
+        const isB = layout === "content-b";
+        content = (
+          <div style={{ ...containerStyle, alignItems:"flex-start", textAlign:"left", padding:"100px 80px" }}>
+            <div style={{
+              width:"100%",
+              padding: isB ? "60px" : "0",
+              backgroundColor: isB ? "rgba(0,0,0,0.55)" : "transparent",
+              borderRadius: isB ? "30px" : "0",
+              backdropFilter: isB ? "blur(10px)" : "none",
+              border: isB ? "1px solid rgba(255,255,255,0.2)" : "none",
+              display:"flex",
+              flexDirection:"column",
+              alignItems: isB ? "center" : "flex-start"
+            }}>
+              {isB && data.innerImage && (
+                <div style={{ width:"100%", height:"320px", marginBottom:"34px", borderRadius:"16px", overflow:"hidden", flexShrink:0 }}>
+                  <img src={data.innerImage} style={{ width:"100%", height:"100%", objectFit:"cover" }} alt="inner"/>
+                </div>
+              )}
+              <div style={{ ...t1Style, margin:"0 0 18px 0", color: config.accentColor || "#fbbf24", textAlign: isB ? "center" : "left", textShadow:"none" }}
+                dangerouslySetInnerHTML={renderHtmlText(data.title1)}
+              />
+              <div style={{ ...t2Style, margin:"0 0 26px 0", opacity:0.92, textAlign: isB ? "center" : "left" }}
+                dangerouslySetInnerHTML={renderHtmlText(data.title2)}
+              />
+              {!isB && <div style={{ width:"100%", height:"2px", backgroundColor:"white", opacity:0.28, marginBottom:"34px" }}></div>}
+              <div style={{ ...b1Style, width:"100%" }} dangerouslySetInnerHTML={renderHtmlText(data.body1)} />
+              <div style={{ ...b2Style, marginTop:"26px", opacity:0.82, fontStyle:"italic" }} dangerouslySetInnerHTML={renderHtmlText(data.body2)} />
+            </div>
+          </div>
+        );
+      }
+
+      else if (layout.startsWith("list")) {
+        const isB = layout === "list-b";
+        const items = (data.body1 ? data.body1.split("\n").filter(x => x.trim()) : []);
+        content = (
+          <div style={{ ...containerStyle, alignItems:"flex-start", textAlign:"left", padding:"100px 80px" }}>
+            <div style={{
+              ...t1Style,
+              margin:"0 0 50px 0",
+              borderBottom: isB ? `6px solid ${config.accentColor || "#fbbf24"}` : "none",
+              paddingBottom: isB ? "20px" : 0,
+              borderLeft: !isB ? `10px solid ${config.accentColor || "#fbbf24"}` : "none",
+              paddingLeft: !isB ? "30px" : 0
+            }}
+              dangerouslySetInnerHTML={renderHtmlText(data.title1)}
+            />
+            <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:"18px" }}>
+              {items.map((item, i) => (
+                <div key={i} style={{
+                  ...b1Style,
+                  backgroundColor: isB ? "rgba(255,255,255,0.12)" : "transparent",
+                  padding: isB ? "22px 28px" : "8px 0",
+                  borderRadius:"16px",
+                  borderLeft: isB ? `8px solid ${config.accentColor || "#fbbf24"}` : "none",
+                  display:"flex",
+                  alignItems:"flex-start",
+                  gap:"14px"
+                }}>
+                  {!isB && <div style={{ color: config.accentColor || "#fbbf24", fontSize: `${parseFloat(b1Style.fontSize) * 1.15}px`, lineHeight: 1 }}>•</div>}
+                  <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}
+                    dangerouslySetInnerHTML={renderHtmlText(item.replace(/^[•\-\*]\s*/, ""))}
+                  />
+                </div>
+              ))}
+            </div>
+            {data.body2 && (
+              <div style={{ ...b2Style, marginTop:"auto", paddingTop:"40px", width:"100%", color: config.accentColor || "#fbbf24", fontWeight:"bold" }}>
+                💡 {data.body2}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      else if (layout.startsWith("cta")) {
+        const isB = layout === "cta-b";
+        content = (
+          <div style={{ ...containerStyle, justifyContent:"center", alignItems:"center", textAlign:"center", padding:"100px" }}>
+            <div style={{ ...t1Style, margin:"0 0 26px 0", color: config.accentColor || "#fbbf24", textShadow:"none" }}
+              dangerouslySetInnerHTML={renderHtmlText(data.title1)}
+            />
+            <div style={{ ...t2Style, marginBottom:"70px", maxWidth:"80%" }}
+              dangerouslySetInnerHTML={renderHtmlText(data.title2)}
+            />
+            <div style={{
+              padding: isB ? "34px 90px" : "28px 70px",
+              backgroundColor: isB ? "white" : "transparent",
+              color: isB ? "black" : "white",
+              border: isB ? "none" : "6px solid white",
+              borderRadius: "100px",
+              fontSize: `${parseFloat(t1Style.fontSize) * 0.45}px`,
+              fontWeight: 800,
+              display:"inline-flex",
+              alignItems:"center",
+              gap:"18px",
+              boxShadow: isB ? "0 20px 40px rgba(0,0,0,0.3)" : "none",
+              textShadow: "none"
+            }}>
+              {data.body1 || "留言領取"} <span style={{ fontSize:"0.9em" }}>→</span>
+            </div>
+            <div style={{ ...b2Style, marginTop:"70px", opacity:0.85 }}
+              dangerouslySetInnerHTML={renderHtmlText(data.body2)}
+            />
+          </div>
+        );
+      }
+
+      // fallback
+      if (!content) {
+        content = (
+          <div style={{ ...containerStyle, justifyContent:"center" }}>
+            <div style={t1Style} dangerouslySetInnerHTML={renderHtmlText(data.title1)} />
+            <div style={b1Style} dangerouslySetInnerHTML={renderHtmlText(data.body1)} />
+          </div>
+        );
+      }
+
+      const bgUrl = (data.bgUrl && typeof data.bgUrl === "string") ? data.bgUrl : unsplash(IMAGE_LIBRARY.default[0]);
+      return (
+        <svg width="100%" height="100%" viewBox={`0 0 ${size.w} ${size.h}`} xmlns="http://www.w3.org/2000/svg">
+          <defs></defs>
+          <image href={bgUrl} width={size.w} height={size.h} preserveAspectRatio="xMidYMid slice" />
+          <rect width={size.w} height={size.h} fill={overlayColor} opacity={opacity} />
+          <foreignObject x="0" y="0" width={size.w} height={size.h}>
+            <div xmlns="http://www.w3.org/1999/xhtml" style={{
+              width: `${baseWidth}px`,
+              height: `${baseHeight}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left"
+            }}>
+              {LogoEl}
+              {content}
+            </div>
+          </foreignObject>
+        </svg>
+      );
+    }
+
+    /***********************
+     * Components
+     ***********************/
+    function TextControl({ label, value, onChangeText, rows=2, isActive, onFocus }) {
+      const ref = useRef(null);
+
+      const handleKeyDown = (e) => {
+        if (e.nativeEvent && e.nativeEvent.isComposing) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const textarea = e.target;
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const originalValue = textarea.value;
+          const insertion = e.shiftKey ? "\n" : "\n\n";
+          const newValue = originalValue.substring(0, start) + insertion + originalValue.substring(end);
+          onChangeText(newValue);
+          setTimeout(() => {
+            textarea.selectionStart = textarea.selectionEnd = start + insertion.length;
+            textarea.focus();
+          }, 0);
+        }
       };
 
-      // --- State Management ---
-      const [leftTab, setLeftTab] = useState('global-ai');
+      return (
+        <div className={`group p-3 rounded-xl border-2 transition-all duration-200 ${isActive ? 'border-yellow-400 bg-yellow-50/30' : 'border-gray-100 bg-white hover:border-yellow-200'}`}>
+          <div className="flex justify-between items-center mb-1.5">
+            <label className={`text-xs font-bold tracking-wider ${isActive ? 'text-yellow-700' : 'text-gray-400'}`}>{label}</label>
+            {isActive && <span className="text-[10px] text-yellow-600 font-medium animate-pulse">● 編輯中</span>}
+          </div>
+          <textarea
+            ref={ref}
+            value={value || ''}
+            onChange={(e) => onChangeText(e.target.value)}
+            onFocus={onFocus}
+            onKeyDown={handleKeyDown}
+            rows={rows}
+            className="w-full bg-transparent outline-none resize-none text-sm text-gray-700 leading-relaxed"
+            style={{ minHeight: rows === 2 ? "48px" : "96px" }}
+            onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }}
+          />
+        </div>
+      );
+    }
+
+    function ToolbarButton({ iconName, label, onClick, isActive }) {
+      return (
+        <button
+          onClick={onClick}
+          className={`relative group w-10 h-10 flex items-center justify-center rounded-xl transition-all ${isActive ? 'bg-yellow-100 text-yellow-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+          title={label}
+        >
+          <LIcon name={iconName} size={18} />
+        </button>
+      );
+    }
+
+    /***********************
+     * Main App
+     ***********************/
+    function App() {
+      const [leftTab, setLeftTab] = useState("global-ai");  // global-ai | editor
+      const [viewMode, setViewMode] = useState("preview");  // preview | script
 
       const [globalConfig, setGlobalConfig] = useState({
         brand: "老獅說・圖文製研所",
         logoImage: null,
         accentColor: "#fbbf24",
-        overlayOpacity: 0.4,
-        textAlign: 'left',
-        sizeMode: 'square',
+        overlayValue: 40,
+        sizeMode: "square",
         titleFontSize: 80,
         bodyFontSize: 42,
-        fontTheme: 'serif',
-        logoPosition: 'top-center',
-        styleTheme: 'default'
+        brandFontSize: 28,
+        fontTheme: "serif",
+        styleTheme: "default",
+        logoPosition: "top-center",
+        textColor: "#ffffff",
+        lineHeight: 1.5,
       });
 
       const [slides, setSlides] = useState([
         {
-          id: 'init-1',
-          layout: 'cover-a',
-          title1: "核心穿搭：三層原則",
-          title2: "保暖、吸濕、防水缺一不可",
-          body1: "滑雪新手必看的保暖秘籍",
-          body2: "收藏這篇，下次去雪場不挨凍",
-          bgUrl: "https://images.unsplash.com/photo-1493612276216-ee3925520721?q=80&w=1080"
+          id: uid(),
+          layout: "cover-a",
+          title1: "老獅說品牌策略：商業變現的秘密",
+          title2: "從零到一，每個步驟都不錯過",
+          body1: "結合 AI 工具的最新秘籍",
+          body2: "收藏這篇，讓你的粉絲成長翻倍",
+          bgUrl: unsplash(IMAGE_LIBRARY.minimal[0]),
+          innerImage: null,
         }
       ]);
-
       const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-      const [bgKeyword, setBgKeyword] = useState('');
-      const [isSearchingBg, setIsSearchingBg] = useState(false);
-      const [isDownloading, setIsDownloading] = useState(false);
+      const [previewSlide, setPreviewSlide] = useState(null);
 
-      // --- History (Undo/Redo) ---
+      const activeSlide = previewSlide || slides[currentSlideIndex];
+      const currentSize = SIZES[globalConfig.sizeMode];
+
+      // history for undo/redo
       const [history, setHistory] = useState([]);
       const [historyStep, setHistoryStep] = useState(-1);
       const isUndoable = historyStep > 0;
       const isRedoable = historyStep < history.length - 1;
-      const fileInputRef = useRef(null);
 
       useEffect(() => {
         if (history.length === 0) {
-          const initialState = {
-            slides: JSON.parse(JSON.stringify(slides)),
-            globalConfig: { ...globalConfig }
-          };
-          setHistory([initialState]);
+          const initial = { slides: JSON.parse(JSON.stringify(slides)), globalConfig: { ...globalConfig } };
+          setHistory([initial]);
           setHistoryStep(0);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
 
-      const updateStateWithHistory = (newSlides, newConfig) => {
-        const nextState = {
-          slides: JSON.parse(JSON.stringify(newSlides)),
-          globalConfig: { ...newConfig }
-        };
-        const newHistory = history.slice(0, historyStep + 1);
-        newHistory.push(nextState);
-        if (newHistory.length > 50) newHistory.shift();
-        setHistory(newHistory);
-        setHistoryStep(newHistory.length - 1);
+      const pushHistory = (newSlides, newConfig) => {
+        const next = { slides: JSON.parse(JSON.stringify(newSlides)), globalConfig: { ...newConfig } };
+        const cut = history.slice(0, historyStep + 1);
+        cut.push(next);
+        if (cut.length > 50) cut.shift();
+        setHistory(cut);
+        setHistoryStep(cut.length - 1);
         setSlides(newSlides);
         setGlobalConfig(newConfig);
       };
 
       const handleUndo = () => {
         if (!isUndoable) return;
-        const prevStep = historyStep - 1;
-        const prevState = history[prevStep];
-        setSlides(prevState.slides);
-        setGlobalConfig(prevState.globalConfig);
-        setHistoryStep(prevStep);
+        const prev = history[historyStep - 1];
+        setSlides(prev.slides);
+        setGlobalConfig(prev.globalConfig);
+        setHistoryStep(historyStep - 1);
+        setPreviewSlide(null);
       };
 
       const handleRedo = () => {
         if (!isRedoable) return;
-        const nextStep = historyStep + 1;
-        const nextState = history[nextStep];
-        setSlides(nextState.slides);
-        setGlobalConfig(nextState.globalConfig);
-        setHistoryStep(nextStep);
+        const next = history[historyStep + 1];
+        setSlides(next.slides);
+        setGlobalConfig(next.globalConfig);
+        setHistoryStep(historyStep + 1);
+        setPreviewSlide(null);
       };
 
-      // --- AI State ---
-      const [globalChatInput, setGlobalChatInput] = useState('');
-      const [isGlobalTyping, setIsGlobalTyping] = useState(false);
-      const [globalMessages, setGlobalMessages] = useState([
-        {
-          id: 1,
-          role: 'assistant',
-          text: '嗨！我是你的圖文總策劃。請告訴我你想做什麼主題？（例如：新手露營清單、如何面對焦慮...）\n我會幫你規劃整套貼文的結構。',
-          proposals: null
+      const handleGlobalConfigChange = (key, value) => {
+        pushHistory(slides, { ...globalConfig, [key]: value });
+      };
+
+      const handleSlideChange = (key, value, commit=false) => {
+        if (previewSlide) {
+          setPreviewSlide({ ...previewSlide, [key]: value });
+          return;
         }
-      ]);
-      const [hasGenerated, setHasGenerated] = useState(false);
-      const [isGlobalApplied, setIsGlobalApplied] = useState(false);
-      const globalChatContainerRef = useRef(null);
+        const newSlides = [...slides];
+        newSlides[currentSlideIndex] = { ...newSlides[currentSlideIndex], [key]: value };
+        if (commit) pushHistory(newSlides, globalConfig);
+        else setSlides(newSlides);
+      };
 
-      const [slideChatInput, setSlideChatInput] = useState('');
-      const [isSlideChatTyping, setIsSlideChatTyping] = useState(false);
-      const [chatHistoryMap, setChatHistoryMap] = useState({});
-      const [previewSlide, setPreviewSlide] = useState(null);
+      const handleBgUrlChange = (url) => {
+        handleSlideChange("bgUrl", url, true);
+      };
 
+      const handleApplyBgToAll = () => {
+        const bg = activeSlide.bgUrl;
+        const newSlides = slides.map(s => ({ ...s, bgUrl: bg }));
+        pushHistory(newSlides, globalConfig);
+      };
+
+      const addSlide = () => {
+        const newSlide = {
+          id: uid(),
+          layout: "content-a",
+          title1: "新標題",
+          title2: "副標題",
+          body1: "輸入你的內文...",
+          body2: "",
+          bgUrl: unsplash(IMAGE_LIBRARY.default[0]),
+          innerImage: null,
+        };
+        const newSlides = [...slides, newSlide];
+        pushHistory(newSlides, globalConfig);
+        setCurrentSlideIndex(newSlides.length - 1);
+        setPreviewSlide(null);
+        setViewMode("preview");
+        setLeftTab("editor");
+      };
+
+      const deleteSlide = (e, index) => {
+        e.stopPropagation();
+        if (slides.length <= 1) return;
+        const newSlides = slides.filter((_, i) => i !== index);
+        pushHistory(newSlides, globalConfig);
+        setCurrentSlideIndex(Math.max(0, Math.min(currentSlideIndex, newSlides.length - 1)));
+        setPreviewSlide(null);
+      };
+
+      /******** Background search (local + fast) ********/
+      const [bgKeyword, setBgKeyword] = useState("");
+      const [bgSearchResults, setBgSearchResults] = useState([]);
+      const [isSearchingBg, setIsSearchingBg] = useState(false);
+
+      const handleSearchBg = () => {
+        setIsSearchingBg(true);
+        const kw = bgKeyword.trim();
+        const pool = [];
+        const kwLower = kw.toLowerCase();
+
+        for (const [cat, words] of Object.entries(KEYWORD_MAPPING)) {
+          if (words.some(w => kwLower.includes(w))) {
+            if (IMAGE_LIBRARY[cat]) pool.push(...IMAGE_LIBRARY[cat]);
+          }
+        }
+        const finalPool = (pool.length ? [...new Set(pool)] : Object.values(IMAGE_LIBRARY).flat());
+        const shuffled = [...finalPool].sort(() => 0.5 - Math.random());
+        const ids = shuffled.slice(0, 10);
+
+        const results = ids.map(id => ({
+          thumb: unsplash(id, 300, 60),
+          full: unsplash(id, 2400, 95),
+        }));
+        setBgSearchResults(results);
+        setIsSearchingBg(false);
+      };
+
+      const bgImageInputRef = useRef(null);
+      const handleBgUpload = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          handleBgUrlChange(ev.target.result);
+        };
+        reader.readAsDataURL(file);
+        e.target.value = "";
+      };
+
+      /******** Text field styling ********/
+      const [activeFieldKey, setActiveFieldKey] = useState(null);
+      const [openToolbarMenu, setOpenToolbarMenu] = useState(null);
+
+      const handleFieldStyleChange = (property, value) => {
+        if (!activeFieldKey) return;
+        const key = `${activeFieldKey}${property}`;
+        handleSlideChange(key, value, true);
+      };
+
+      const handleFontSizeChange = (delta) => {
+        if (!activeFieldKey) return;
+        const key = `${activeFieldKey}FontSize`;
+        let cur = activeSlide[key];
+        if (!cur) {
+          if (activeFieldKey === "title1") cur = globalConfig.titleFontSize;
+          else if (activeFieldKey === "title2") cur = globalConfig.titleFontSize * 0.7;
+          else if (activeFieldKey === "body1") cur = globalConfig.bodyFontSize;
+          else if (activeFieldKey === "body2") cur = globalConfig.bodyFontSize * 0.8;
+          else cur = 30;
+        }
+        const next = Math.max(10, (cur || 20) + delta);
+        handleSlideChange(key, next, false);
+      };
+
+      /******** Download PNG ********/
       const mainSvgRef = useRef(null);
-      const slideChatContainerRef = useRef(null);
-      const slideTextareaRef = useRef(null);
-      const globalTextareaRef = useRef(null);
+      const [isDownloading, setIsDownloading] = useState(false);
 
-      const currentSize = SIZES[globalConfig.sizeMode];
-      const activeSlide = previewSlide || slides[currentSlideIndex];
+      const downloadPNG = async () => {
+        if (!mainSvgRef.current) return;
+        setIsDownloading(true);
 
-      // Auto Scroll
-      useEffect(() => {
-        if (slideChatContainerRef.current) {
-          setTimeout(() => {
-            slideChatContainerRef.current.scrollTo({ top: slideChatContainerRef.current.scrollHeight, behavior: 'smooth' });
-          }, 100);
+        try {
+          const originalSvg = mainSvgRef.current.querySelector("svg");
+          if (!originalSvg) throw new Error("SVG not found");
+
+          // Clone SVG
+          const clonedSvg = originalSvg.cloneNode(true);
+
+          // Try to inline external images (may fail due to CORS)
+          const processImageToDataURL = async (url) => {
+            if (!url || typeof url !== "string") return url;
+            if (!url.startsWith("http")) return url; // already data:
+            try {
+              const resp = await fetch(url, { mode: "cors" });
+              const blob = await resp.blob();
+              return await new Promise((resolve) => {
+                const r = new FileReader();
+                r.onloadend = () => resolve(r.result);
+                r.readAsDataURL(blob);
+              });
+            } catch (e) {
+              return url; // fallback
+            }
+          };
+
+          // Inline <image href="...">
+          const imageEls = clonedSvg.querySelectorAll("image");
+          await Promise.all(Array.from(imageEls).map(async (el) => {
+            const href = el.getAttribute("href") || el.getAttribute("xlink:href");
+            if (href) {
+              const dataUrl = await processImageToDataURL(href);
+              el.setAttribute("href", dataUrl);
+            }
+          }));
+
+          const serializer = new XMLSerializer();
+          const svgString = serializer.serializeToString(clonedSvg);
+          const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+          const blobURL = URL.createObjectURL(svgBlob);
+
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+
+          img.onload = async () => {
+            try {
+              await new Promise(r => setTimeout(r, 150));
+              const canvas = document.createElement("canvas");
+              canvas.width = currentSize.w * 2;
+              canvas.height = currentSize.h * 2;
+              const ctx = canvas.getContext("2d");
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+              const pngUrl = canvas.toDataURL("image/png");
+              const a = document.createElement("a");
+              a.href = pngUrl;
+              a.download = `slide-${currentSlideIndex + 1}-${Date.now()}.png`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            } catch (err) {
+              alert("圖片下載失敗：可能是背景圖來源不允許跨域（CORS）。你可以改用「上傳背景圖」後再下載。");
+            } finally {
+              URL.revokeObjectURL(blobURL);
+              setIsDownloading(false);
+            }
+          };
+
+          img.onerror = () => {
+            URL.revokeObjectURL(blobURL);
+            setIsDownloading(false);
+            alert("圖片下載失敗：SVG 轉圖錯誤。建議先用「上傳背景圖」再下載。");
+          };
+
+          img.src = blobURL;
+
+        } catch (e) {
+          console.error(e);
+          setIsDownloading(false);
+          alert("下載失敗，請稍後再試。");
         }
-      }, [chatHistoryMap, currentSlideIndex, isSlideChatTyping]);
+      };
+
+      /******** AI Panel ********/
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("GEMINI_API_KEY") || "");
+      const [globalMessages, setGlobalMessages] = useState([
+        { id: uid(), role: "assistant", text: "嗨！我是你的圖文總策劃。輸入主題，我會規劃 4-6 張貼文。你也可以貼上完整腳本讓我拆頁。", proposals: null }
+      ]);
+      const [globalChatInput, setGlobalChatInput] = useState("");
+      const [isGlobalTyping, setIsGlobalTyping] = useState(false);
+      const [isGlobalApplied, setIsGlobalApplied] = useState(false);
+      const globalChatRef = useRef(null);
 
       useEffect(() => {
-        if (globalChatContainerRef.current) {
-          setTimeout(() => {
-            globalChatContainerRef.current.scrollTo({ top: globalChatContainerRef.current.scrollHeight, behavior: 'smooth' });
-          }, 100);
+        if (globalChatRef.current) {
+          setTimeout(() => globalChatRef.current.scrollTo({ top: globalChatRef.current.scrollHeight, behavior: "smooth" }), 100);
         }
       }, [globalMessages, isGlobalTyping]);
 
-      // Textarea resize
-      useEffect(() => {
-        if (slideTextareaRef.current) {
-          slideTextareaRef.current.style.height = 'auto';
-          slideTextareaRef.current.style.height = `${Math.min(slideTextareaRef.current.scrollHeight, 100)}px`;
-        }
-      }, [slideChatInput]);
-
-      useEffect(() => {
-        if (globalTextareaRef.current) {
-          globalTextareaRef.current.style.height = 'auto';
-          globalTextareaRef.current.style.height = `${Math.min(globalTextareaRef.current.scrollHeight, 120)}px`;
-        }
-      }, [globalChatInput]);
-
-      // Wrappers using history
-      const handleGlobalConfigChange = (key, value) => {
-        updateStateWithHistory(slides, { ...globalConfig, [key]: value });
+      const saveApiKey = (v) => {
+        setApiKey(v);
+        localStorage.setItem("GEMINI_API_KEY", v);
       };
 
-      const handleSlideContentChange = (key, value) => {
-        if (previewSlide) {
-          const newSlide = { ...previewSlide, [key]: value };
-          const newSlides = [...slides];
-          newSlides[currentSlideIndex] = newSlide;
-          updateStateWithHistory(newSlides, globalConfig);
-          setPreviewSlide(null);
-        } else {
-          const newSlides = [...slides];
-          newSlides[currentSlideIndex] = { ...newSlides[currentSlideIndex], [key]: value };
-          setSlides(newSlides);
+      const handleGlobalChatSend = async () => {
+        const input = globalChatInput.trim();
+        if (!input) return;
+
+        setGlobalMessages(prev => [...prev, { id: uid(), role: "user", text: input }]);
+        setGlobalChatInput("");
+        setIsGlobalTyping(true);
+        setIsGlobalApplied(false);
+
+        const prompt = `
+你是一個專業的 IG 圖文企劃。用戶希望製作關於「${input}」的貼文。
+請生成 4-6 張圖文的企劃內容。
+回傳 JSON 陣列格式：
+[
+  { "title1":"封面標題","title2":"副標題","body1":"重點","body2":"可選","layout":"cover-a","bgKeyword":"english keyword" },
+  { "title1":"標題","title2":"副標題","body1":"內文(多行用\\n)","body2":"可選","layout":"content-a","bgKeyword":"english keyword" }
+]
+layout 可用：cover-a, cover-b, content-a, content-b, split-a, photo-b, list-a, list-b, quote-a, quote-b, cta-a, cta-b
+只回傳 JSON，不要 markdown，不要多餘文字。`;
+
+        try {
+          const { text } = await callGemini(apiKey, { contents: [{ role: "user", parts: [{ text: prompt }] }] });
+          const proposals = extractJson(text);
+
+          const ok = Array.isArray(proposals);
+          setGlobalMessages(prev => [...prev, {
+            id: uid(),
+            role: "assistant",
+            text: ok ? `我幫你規劃了 ${proposals.length} 頁：` : "抱歉，AI 回傳格式有誤，請再送一次。",
+            proposals: ok ? proposals : null
+          }]);
+
+        } catch (e) {
+          setGlobalMessages(prev => [...prev, { id: uid(), role: "assistant", text: "連線失敗，請稍後再試。", proposals: null }]);
+        } finally {
+          setIsGlobalTyping(false);
         }
       };
 
-      const saveSlideContentToHistory = () => {
-        if (!previewSlide) {
-          updateStateWithHistory(slides, globalConfig);
+      const applyProposals = (proposals) => {
+        if (!Array.isArray(proposals) || proposals.length === 0) return;
+
+        const newSlides = proposals.map((p) => ({
+          id: uid(),
+          layout: p.layout && LAYOUTS[p.layout] ? p.layout : "content-a",
+          title1: p.title1 || "",
+          title2: p.title2 || "",
+          body1: p.body1 || "",
+          body2: p.body2 || "",
+          bgUrl: p.bgUrl || pickImageByKeyword(p.bgKeyword || "minimal"),
+          innerImage: p.innerImage || null
+        }));
+
+        pushHistory(newSlides, globalConfig);
+        setCurrentSlideIndex(0);
+        setLeftTab("editor");
+        setViewMode("preview");
+        setIsGlobalApplied(true);
+        setPreviewSlide(null);
+      };
+
+      /******** Script import mode (AI split) ********/
+      const [scriptInput, setScriptInput] = useState("");
+      const [isScriptGenerating, setIsScriptGenerating] = useState(false);
+
+      const handleScriptGeneration = async () => {
+        if (!scriptInput.trim()) return;
+        setIsScriptGenerating(true);
+
+        const prompt = `
+你是一個專業的社群圖文編輯。請分析用戶提供的「IG 貼文規劃」文案與指引。
+用戶會貼上包含「第 X 頁」、「視覺建議」、「文案內容」等結構的長文。
+
+請將其轉換為 JSON 陣列，每個物件代表一頁 slide。
+每個物件包含：
+- layout: 根據內容決定最適合的版型 (cover-a, cover-b, content-a, content-b, split-a, photo-b, list-a, list-b, quote-a, quote-b, cta-a, cta-b)
+- title1, title2, body1(多行用\\n), body2
+- bgKeyword: 請翻譯成英文，用於搜尋背景圖
+
+只回傳 JSON 陣列，不要 markdown，不要多餘文字。
+
+用戶輸入內容：
+${scriptInput}
+`;
+
+        try {
+          const { text } = await callGemini(apiKey, { contents: [{ role: "user", parts: [{ text: prompt }] }] });
+          const arr = extractJson(text);
+
+          if (Array.isArray(arr) && arr.length) {
+            const newSlides = arr.map((s) => ({
+              id: uid(),
+              layout: s.layout && LAYOUTS[s.layout] ? s.layout : "content-a",
+              title1: s.title1 || "",
+              title2: s.title2 || "",
+              body1: s.body1 || "",
+              body2: s.body2 || "",
+              bgUrl: pickImageByKeyword(s.bgKeyword || "background"),
+              innerImage: null
+            }));
+            pushHistory(newSlides, globalConfig);
+            setScriptInput("");
+            setViewMode("preview");
+            setLeftTab("editor");
+            setCurrentSlideIndex(0);
+            alert(`成功生成 ${newSlides.length} 頁圖文！已自動配圖。`);
+          } else {
+            alert("解析失敗：請確認腳本格式清晰，或重試一次。");
+          }
+        } catch (e) {
+          alert("連線錯誤，請稍後再試。");
+        } finally {
+          setIsScriptGenerating(false);
         }
       };
 
-      const handleBgUrlChange = (value) => {
-        const newSlides = [...slides];
-        newSlides[currentSlideIndex] = { .
+      /******** UI ********/
+      return (
+        <div className="min-h-screen p-4 md:p-8 flex flex-col items-center">
+          {/* Top bar */}
+          <div className="w-full max-w-[1600px] mb-4 flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-gray-100 sticky top-0 z-50">
+            <div className="flex items-center gap-2">
+              <div className="bg-yellow-100 p-2 rounded-lg"><LIcon name="layout" size={18} className="text-yellow-600"/></div>
+              <h1 className="font-bold text-gray-800">圖文製研所（GitHub Pages 版）</h1>
+              <span className="text-[10px] text-gray-400 ml-2 hidden md:inline">免打包｜可直接部署</span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleUndo} disabled={!isUndoable} className="p-2 hover:bg-gray-100 rounded disabled:opacity-40" title="Undo">
+                <LIcon name="undo-2" size={16}/>
+              </button>
+              <button onClick={handleRedo} disabled={!isRedoable} className="p-2 hover:bg-gray-100 rounded disabled:opacity-40" title="Redo">
+                <LIcon name="redo-2" size={16}/>
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-[1600px] w-full grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[850px] min-h-[850px]">
+            {/* LEFT */}
+            <div className="lg:col-span-3 bg-white rounded-xl shadow-lg flex flex-col overflow-hidden border border-gray-100 h-full relative z-30">
+              <div className="border-b bg-white z-50 shrink-0 sticky top-0">
+                <div className="flex">
+                  <button type="button" onClick={() => setLeftTab("global-ai")}
+                    className={`flex-1 py-4 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition-colors cursor-pointer ${leftTab === 'global-ai' ? 'border-yellow-500 text-yellow-600 bg-yellow-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>
+                    <LIcon name="bot" size={16}/> AI 企劃
+                  </button>
+                  <button type="button" onClick={() => setLeftTab("editor")}
+                    className={`flex-1 py-4 text-sm font-bold flex justify-center items-center gap-2 border-b-2 transition-colors cursor-pointer ${leftTab === 'editor' ? 'border-yellow-500 text-yellow-600 bg-yellow-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}>
+                    <LIcon name="pencil" size={16}/> 手動編輯
+                  </button>
+                </div>
+              </div>
+
+              {/* EDITOR TAB */}
+              {leftTab === "editor" && (
+                <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">全域設定</span>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.keys(SIZES).map((mode) => (
+                        <button key={mode}
+                          onClick={() => handleGlobalConfigChange("sizeMode", mode)}
+                          className={`flex flex-col items-center justify-center p-2 rounded border transition-all ${
+                            globalConfig.sizeMode === mode ? "border-yellow-400 bg-yellow-50 text-gray-900" : "border-gray-200 text-gray-400 hover:bg-gray-50"
+                          }`}>
+                          <div className={`border border-current mb-1 rounded-sm ${SIZES[mode].iconClass}`}></div>
+                          <span className="text-[10px]">{SIZES[mode].label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-xs text-gray-500 block mb-1">風格主題</label>
+                      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+                        {["default","yaya","chenyuluoyan"].map((k) => (
+                          <button key={k}
+                            onClick={() => handleGlobalConfigChange("styleTheme", k)}
+                            className={`flex-1 py-1.5 text-xs rounded-md transition ${
+                              globalConfig.styleTheme === k ? "bg-white shadow text-gray-800 font-bold" : "text-gray-500 hover:bg-gray-200"
+                            }`}>
+                            {k === "default" ? "預設" : k === "yaya" ? "Yaya 風格" : "辰宇落雁體"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-xs text-gray-500 block mb-1">字體主題</label>
+                      <select
+                        value={globalConfig.fontTheme}
+                        onChange={(e) => handleGlobalConfigChange("fontTheme", e.target.value)}
+                        className="w-full p-2 text-xs border border-gray-200 rounded bg-gray-50 focus:bg-white outline-none focus:border-yellow-400"
+                      >
+                        {FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">品牌名稱 / Logo文字</label>
+                        <input
+                          type="text"
+                          value={globalConfig.brand}
+                          onChange={(e) => handleGlobalConfigChange("brand", e.target.value)}
+                          className="w-full p-2 text-xs border border-gray-200 rounded bg-gray-50 focus:bg-white outline-none focus:border-yellow-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 block mb-1">Logo 位置</label>
+                        <div className="grid grid-cols-3 gap-1 bg-gray-100 p-1 rounded-lg">
+                          {LOGO_POSITIONS.map(pos => (
+                            <button key={pos.id}
+                              onClick={() => handleGlobalConfigChange("logoPosition", pos.id)}
+                              className={`py-1.5 text-[10px] rounded-md transition ${
+                                globalConfig.logoPosition === pos.id ? "bg-white shadow text-gray-800 font-bold" : "text-gray-400 hover:bg-gray-200"
+                              }`}>
+                              {pos.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">重點色</label>
+                          <input
+                            type="color"
+                            value={globalConfig.accentColor}
+                            onChange={(e) => handleGlobalConfigChange("accentColor", e.target.value)}
+                            className="w-full h-9 p-1 border border-gray-200 rounded bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">Logo字級</label>
+                          <input
+                            type="number"
+                            value={globalConfig.brandFontSize}
+                            onChange={(e) => handleGlobalConfigChange("brandFontSize", parseInt(e.target.value || "28", 10))}
+                            className="w-full p-2 text-xs border border-gray-200 rounded bg-gray-50 focus:bg-white outline-none focus:border-yellow-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr className="border-gray-100" />
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                      <LIcon name="layout" size={14}/> 版型選擇
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(LAYOUTS).map(([key, cfg]) => (
+                        <button key={key}
+                          onClick={() => handleSlideChange("layout", key, true)}
+                          className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${
+                            activeSlide.layout === key
+                              ? "border-yellow-400 bg-yellow-50 text-yellow-900 ring-1 ring-yellow-400"
+                              : "border-gray-200 hover:border-gray-300 bg-white text-gray-600"
+                          }`}>
+                          <div className={`p-1 rounded ${activeSlide.layout === key ? "bg-yellow-200" : "bg-gray-100"}`}>
+                            <LIcon name="grid-3x3" size={14}/>
+                          </div>
+                          <span className="text-[10px] font-medium">{cfg.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <hr className="border-gray-100" />
+
+                  <div className="space-y-3">
+                    <TextControl label="主標題" value={activeSlide.title1} onChangeText={(v) => handleSlideChange("title1", v)} onFocus={() => setActiveFieldKey("title1")} isActive={activeFieldKey==="title1"} />
+                    <TextControl label="副標題" value={activeSlide.title2} onChangeText={(v) => handleSlideChange("title2", v)} onFocus={() => setActiveFieldKey("title2")} isActive={activeFieldKey==="title2"} />
+                    <TextControl label="內文 1" rows={3} value={activeSlide.body1} onChangeText={(v) => handleSlideChange("body1", v)} onFocus={() => setActiveFieldKey("body1")} isActive={activeFieldKey==="body1"} />
+                    <TextControl label="內文 2" rows={3} value={activeSlide.body2} onChangeText={(v) => handleSlideChange("body2", v)} onFocus={() => setActiveFieldKey("body2")} isActive={activeFieldKey==="body2"} />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xs font-bold text-gray-400 mt-2">背景圖片</div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={bgKeyword}
+                          onChange={(e) => setBgKeyword(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSearchBg(); }}
+                          className="w-full pl-8 p-2 border border-gray-200 rounded text-xs outline-none focus:border-yellow-400"
+                          placeholder="輸入關鍵字（如：coffee / 商務 / 極簡）"
+                        />
+                        <div className="absolute left-2.5 top-2.5 text-gray-400"><LIcon name="search" size={14}/></div>
+                      </div>
+                      <button
+                        onClick={handleSearchBg}
+                        disabled={isSearchingBg}
+                        className="p-2 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 border border-gray-200 flex items-center justify-center transition-colors w-9 h-9 shrink-0"
+                        title="重新生成背景"
+                      >
+                        {isSearchingBg ? <span className="animate-spin inline-flex"><LIcon name="refresh-cw" size={16}/></span> : <LIcon name="refresh-cw" size={16}/>}
+                      </button>
+                    </div>
+
+                    {bgSearchResults.length > 0 && (
+                      <div className="grid grid-cols-5 gap-2 mt-2">
+                        {bgSearchResults.map((item, idx) => (
+                          <button key={idx}
+                            onClick={(e) => { e.preventDefault(); handleBgUrlChange(item.full); }}
+                            className="relative aspect-square rounded-md overflow-hidden border border-gray-200 hover:border-yellow-400 hover:ring-2 ring-yellow-200 transition-all group bg-gray-50"
+                          >
+                            <img
+                              src={item.thumb}
+                              className="w-full h-full object-cover"
+                              alt="result"
+                              onError={(e) => { e.target.src = unsplash(IMAGE_LIBRARY.default[0], 300, 60); }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-2 mt-2">
+                      <button
+                        onClick={() => bgImageInputRef.current && bgImageInputRef.current.click()}
+                        className="w-full cursor-pointer bg-gray-50 hover:bg-gray-100 text-gray-600 text-[10px] py-1.5 px-2 rounded border border-gray-200 flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <LIcon name="upload" size={12}/> 上傳背景圖
+                      </button>
+                      <input ref={bgImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleBgUpload} />
+
+                      <div className="mt-1 px-1">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[10px] text-gray-400">遮罩濃度</span>
+                          <span className="text-[10px] font-mono text-gray-600">
+                            {globalConfig.overlayValue > 0 ? `黑色 ${globalConfig.overlayValue}%` : globalConfig.overlayValue < 0 ? `白色 ${Math.abs(globalConfig.overlayValue)}%` : "無遮罩"}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="-100"
+                          max="100"
+                          value={globalConfig.overlayValue}
+                          onChange={(e) => handleGlobalConfigChange("overlayValue", parseInt(e.target.value, 10))}
+                          className="w-full h-1.5 bg-gray-200 rounded-lg cursor-pointer accent-yellow-500"
+                        />
+                        <div className="flex justify-between text-[8px] text-gray-400 mt-0.5">
+                          <span>白</span><span>無</span><span>黑</span>
+                        </div>
+                      </div>
+
+                      <button onClick={handleApplyBgToAll}
+                        className="w-full py-1 bg-gray-50 hover:bg-gray-100 text-gray-500 text-[10px] rounded border border-gray-200 flex items-center justify-center gap-1 mt-1">
+                        <LIcon name="layers-2" size={10}/> 套用背景至全部頁面
+                      </button>
+
+                      <button
+                        onClick={downloadPNG}
+                        disabled={isDownloading}
+                        className="w-full bg-gray-900 text-white py-3 rounded-lg font-bold flex justify-center items-center gap-2 hover:bg-black transition text-sm disabled:opacity-50 mt-2"
+                      >
+                        {isDownloading ? <span className="animate-spin inline-flex"><LIcon name="loader-2" size={16}/></span> : <LIcon name="download" size={16}/>}
+                        {isDownloading ? "處理中..." : "下載此圖"}
+                      </button>
+
+                      <button
+                        onClick={() => handleGlobalConfigChange("textColor", globalConfig.textColor === "#ffffff" ? "#000000" : "#ffffff")}
+                        className="w-full bg-white py-2 rounded-lg font-bold flex justify-center items-center gap-2 border border-gray-200 hover:bg-gray-50 text-sm mt-2"
+                        title="切換全域黑/白字"
+                      >
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border" style={{
+                          background: globalConfig.textColor === "#ffffff" ? "black" : "white",
+                          color: globalConfig.textColor === "#ffffff" ? "white" : "black",
+                        }}>
+                          {globalConfig.textColor === "#ffffff" ? "白" : "黑"}
+                        </span>
+                        切換全域黑 / 白字
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* AI TAB */}
+              {leftTab === "global-ai" && (
+                <div className="flex-1 flex flex-col min-h-0 bg-gray-50 relative">
+                  {/* API Key bar */}
+                  <div className="p-3 border-b bg-white">
+                    <div className="text-[11px] text-gray-500 flex items-center gap-2">
+                      <LIcon name="key" size={14}/>
+                      <span className="font-bold">Gemini API Key：</span>
+                      <span className="text-gray-400">（貼上一次後會記住在本機瀏覽器）</span>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <input
+                        value={apiKey}
+                        onChange={(e) => saveApiKey(e.target.value)}
+                        placeholder="AIza...（可留空，仍可手動編輯）"
+                        className="flex-1 p-2 text-xs border border-gray-200 rounded bg-gray-50 focus:bg-white outline-none focus:border-yellow-400"
+                      />
+                      <button
+                        onClick={() => { localStorage.removeItem("GEMINI_API_KEY"); setApiKey(""); }}
+                        className="px-3 text-xs font-bold rounded border border-gray-200 bg-white hover:bg-gray-50"
+                        title="清除"
+                      >
+                        清除
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => setViewMode("script")}
+                      className="w-full mt-3 flex items-center justify-center gap-2 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 text-xs font-bold py-2.5 rounded-lg border border-yellow-200 transition-colors"
+                    >
+                      <LIcon name="file-json" size={14}/>
+                      📝 貼上完整腳本生成
+                    </button>
+                  </div>
+
+                  <div ref={globalChatRef} className="flex-1 overflow-y-auto p-4 space-y-4 pb-4">
+                    {globalMessages.map((msg) => (
+                      <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div className={`max-w-[95%] rounded-2xl p-4 ${
+                          msg.role === "user"
+                            ? "bg-gray-800 text-white rounded-tr-none"
+                            : "bg-white shadow-sm border border-gray-200 rounded-tl-none text-gray-700"
+                        }`}>
+                          <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</div>
+
+                          {msg.proposals && (
+                            <div className="mt-3">
+                              <div className="text-xs font-bold text-gray-400 mb-2">生成預覽（{msg.proposals.length} 張）</div>
+                              <div className="space-y-2 mb-3">
+                                {msg.proposals.map((p, i) => (
+                                  <div key={i} className="bg-gray-50 border border-gray-100 rounded p-2 flex gap-2 items-center">
+                                    <div className="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center text-[10px] font-bold text-yellow-700 shrink-0">{i+1}</div>
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-bold truncate">{p.title1 || "(無標題)"}</div>
+                                      <div className="text-[10px] text-gray-400 truncate">{p.layout || "content-a"} · {p.bgKeyword || ""}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <button
+                                onClick={() => applyProposals(msg.proposals)}
+                                className={`w-full text-xs font-bold py-2 rounded-md transition flex items-center justify-center gap-1.5 shadow-sm ${
+                                  isGlobalApplied ? "bg-green-100 text-green-700 cursor-default" : "bg-yellow-400 hover:bg-yellow-500 text-yellow-950"
+                                }`}
+                                disabled={isGlobalApplied}
+                              >
+                                <LIcon name="check-circle-2" size={14}/> 確定採用
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {isGlobalTyping && (
+                      <div className="text-xs text-gray-400 flex items-center gap-2">
+                        <span className="animate-spin inline-flex"><LIcon name="loader-2" size={14}/></span>
+                        AI 生成中…
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white border-t p-3 shrink-0 z-20 shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+                    <div className="flex gap-2 items-end">
+                      <textarea
+                        value={globalChatInput}
+                        onChange={(e) => setGlobalChatInput(e.target.value)}
+                        onKeyDown={(e) => { if (!e.nativeEvent.isComposing && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleGlobalChatSend(); } }}
+                        placeholder="輸入主題（例如：咖啡知識 / 品牌定位）"
+                        className="flex-1 p-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm resize-none min-h-[44px] max-h-[200px] bg-gray-50 focus:bg-white transition"
+                        rows={1}
+                        disabled={isGlobalTyping}
+                      />
+                      <button
+                        onClick={handleGlobalChatSend}
+                        disabled={!globalChatInput.trim() || isGlobalTyping}
+                        className="text-white p-3 rounded-xl hover:opacity-90 disabled:opacity-50 transition flex-shrink-0 bg-gray-900 hover:bg-black"
+                        title="送出"
+                      >
+                        <LIcon name="send" size={18}/>
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-2 leading-relaxed">
+                      提醒：GitHub Pages 無法「偷偷藏 key」，建議用專用 key 或限額 key。
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CENTER */}
+            <div className="lg:col-span-6 flex flex-col gap-4">
+              <div className="flex-1 bg-gray-100 rounded-xl flex overflow-hidden relative border border-gray-200 shadow-inner min-h-[400px]">
+                {viewMode === "script" ? (
+                  <div className="w-full h-full bg-white flex flex-col p-6 relative animate-in fade-in zoom-in-95 duration-200">
+                    <button onClick={() => setViewMode("preview")}
+                      className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full"
+                      title="關閉"
+                    >
+                      <LIcon name="x-circle" size={24}/>
+                    </button>
+
+                    <div className="mb-4">
+                      <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                        <LIcon name="file-json" size={22} className="text-yellow-500"/>
+                        腳本匯入模式
+                      </h2>
+                      <p className="text-gray-500 text-sm mt-1">
+                        請貼上包含「第 X 頁 / 視覺建議 / 文案內容」的完整企劃，我會自動拆頁並配圖。
+                      </p>
+                    </div>
+
+                    <textarea
+                      value={scriptInput}
+                      onChange={(e) => setScriptInput(e.target.value)}
+                      placeholder={`貼上完整腳本...\n\n範例：\n第 1 頁：封面\n視覺建議：極簡咖啡吧台\n文案內容：主標題...\n\n第 2 頁：內容\n視覺建議：咖啡豆近拍\n文案內容：...`}
+                      className="flex-1 w-full p-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-400 text-sm leading-relaxed resize-none bg-gray-50 focus:bg-white transition mb-4 font-mono"
+                    />
+
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => setViewMode("preview")}
+                        className="px-6 py-2.5 rounded-lg text-gray-600 hover:bg-gray-100 font-bold text-sm transition-colors">
+                        取消
+                      </button>
+                      <button
+                        onClick={handleScriptGeneration}
+                        disabled={!scriptInput.trim() || isScriptGenerating}
+                        className="px-8 py-2.5 bg-gray-900 hover:bg-black text-white rounded-lg font-bold text-sm shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                      >
+                        {isScriptGenerating ? <span className="animate-spin inline-flex"><LIcon name="loader-2" size={16}/></span> : <LIcon name="wand-2" size={16}/>}
+                        開始生成圖文
+                      </button>
+                    </div>
+
+                    <div className="text-[10px] text-gray-400 mt-3">
+                      若你尚未設定 Gemini API Key，請回到左側「AI 企劃」先貼上 key。
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Quick toolbar */}
+                    <div className="w-14 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-3 z-20 shrink-0 relative overflow-visible">
+                      {/* Color palette */}
+                      <div className="relative">
+                        <ToolbarButton
+                          iconName="palette"
+                          label="文字顏色"
+                          onClick={() => setOpenToolbarMenu(openToolbarMenu === "color" ? null : "color")}
+                          isActive={openToolbarMenu === "color"}
+                        />
+                        {openToolbarMenu === "color" && (
+                          <div className="absolute left-full top-0 ml-2 bg-white p-3 rounded-xl shadow-xl border border-gray-100 w-56 grid grid-cols-5 gap-2 z-50">
+                            {COLORS.map(c => (
+                              <button key={c}
+                                onClick={() => { handleFieldStyleChange("Color", c); setOpenToolbarMenu(null); }}
+                                className="w-6 h-6 rounded-full border border-gray-200 shadow-sm hover:scale-110 transition"
+                                style={{ backgroundColor: c }}
+                                title={c}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* font size */}
+                      <div className="flex flex-col gap-1 items-center">
+                        <button onClick={() => handleFontSizeChange(5)} className="w-8 h-8 hover:bg-gray-100 rounded flex items-center justify-center" title="放大字體">
+                          <LIcon name="type" size={16}/><span className="ml-[-4px] mb-[8px] text-[10px] font-black">+</span>
+                        </button>
+                        <button onClick={() => handleFontSizeChange(-5)} className="w-8 h-8 hover:bg-gray-100 rounded flex items-center justify-center" title="縮小字體">
+                          <LIcon name="type" size={12}/><span className="ml-[-4px] mb-[8px] text-[10px] font-black">−</span>
+                        </button>
+                      </div>
+
+                      {/* spacing */}
+                      <div className="relative">
+                        <ToolbarButton
+                          iconName="sliders-horizontal"
+                          label="間距調整"
+                          onClick={() => setOpenToolbarMenu(openToolbarMenu === "spacing" ? null : "spacing")}
+                          isActive={openToolbarMenu === "spacing"}
+                        />
+                        {openToolbarMenu === "spacing" && (
+                          <div className="absolute left-full top-0 ml-2 bg-white p-4 rounded-xl shadow-xl border border-gray-100 w-52 flex flex-col gap-4 z-50">
+                            <div>
+                              <span className="text-xs text-gray-500 mb-1 block">行距 (Line Height)</span>
+                              <div className="flex gap-1">
+                                {[1.0,1.4,1.8].map(v => (
+                                  <button key={v} onClick={() => handleFieldStyleChange("LineHeight", v)}
+                                    className="px-2 py-1 bg-gray-100 text-[10px] rounded hover:bg-gray-200">
+                                    {v}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-500 mb-1 block">字距 (Letter Spacing)</span>
+                              <div className="flex gap-1">
+                                <button onClick={() => handleFieldStyleChange("LetterSpacing", 0)} className="px-2 py-1 bg-gray-100 text-[10px] rounded hover:bg-gray-200">0</button>
+                                <button onClick={() => handleFieldStyleChange("LetterSpacing", 0.1)} className="px-2 py-1 bg-gray-100 text-[10px] rounded hover:bg-gray-200">寬</button>
+                                <button onClick={() => handleFieldStyleChange("LetterSpacing", 0.2)} className="px-2 py-1 bg-gray-100 text-[10px] rounded hover:bg-gray-200">極寬</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* effects */}
+                      <div className="relative">
+                        <ToolbarButton
+                          iconName="wand-2"
+                          label="文字特效"
+                          onClick={() => setOpenToolbarMenu(openToolbarMenu === "effects" ? null : "effects")}
+                          isActive={openToolbarMenu === "effects"}
+                        />
+                        {openToolbarMenu === "effects" && (
+                          <div className="absolute left-full top-0 ml-2 bg-white p-2 rounded-xl shadow-xl border border-gray-100 w-32 flex flex-col gap-1 z-50">
+                            {[
+                              { id:"none", label:"無特效" },
+                              { id:"shadow", label:"立體陰影" },
+                              { id:"blur", label:"模糊發光" },
+                              { id:"outline", label:"描邊" },
+                            ].map(x => (
+                              <button key={x.id}
+                                onClick={() => { handleFieldStyleChange("Effect", x.id); setOpenToolbarMenu(null); }}
+                                className="px-3 py-2 hover:bg-gray-50 text-xs text-left rounded">
+                                {x.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="w-8 h-[1px] bg-gray-200 my-1"></div>
+
+                      <button
+                        onClick={() => handleGlobalConfigChange("textColor", globalConfig.textColor === "#ffffff" ? "#000000" : "#ffffff")}
+                        className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center mb-2"
+                        style={{ backgroundColor: globalConfig.textColor === "#ffffff" ? "black" : "white", color: globalConfig.textColor === "#ffffff" ? "white" : "black" }}
+                        title="切換全域黑/白字"
+                      >
+                        {globalConfig.textColor === "#ffffff" ? "白" : "黑"}
+                      </button>
+
+                    </div>
+
+                    {/* Canvas */}
+                    <div className="flex-1 flex items-center justify-center p-6 bg-gray-100 relative overflow-hidden">
+                      <div className="relative shadow-2xl transition-all duration-300" style={{ width: 540, maxWidth: "100%" }}>
+                        <div ref={mainSvgRef}>
+                          <SlideSVG data={activeSlide} size={currentSize} config={globalConfig} />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Thumbnails */}
+              <div className="h-[120px] bg-white rounded-xl shadow-sm border border-gray-200 p-3 flex items-center gap-3 overflow-x-auto shrink-0">
+                {slides.map((slide, idx) => (
+                  <div key={slide.id}
+                    onClick={() => { setCurrentSlideIndex(idx); setPreviewSlide(null); if (viewMode === "script") setViewMode("preview"); }}
+                    className={`group relative min-w-[70px] h-[90px] cursor-pointer rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
+                      currentSlideIndex === idx && viewMode === "preview"
+                        ? "border-yellow-400 ring-2 ring-yellow-400/20 scale-105"
+                        : "border-gray-100 hover:border-gray-300 opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    <div className="w-full h-full pointer-events-none">
+                      <SlideSVG data={slide} size={SIZES.square} config={globalConfig} />
+                    </div>
+                    <button onClick={(e) => deleteSlide(e, idx)}
+                      className="absolute top-1 right-1 bg-black/50 hover:bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="刪除"
+                    >
+                      <LIcon name="trash-2" size={10}/>
+                    </button>
+                    <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[10px] text-center py-0.5 font-bold">{idx + 1}</div>
+                  </div>
+                ))}
+                <button onClick={addSlide}
+                  className="min-w-[70px] h-[90px] rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:text-yellow-600 hover:border-yellow-400 hover:bg-yellow-50 transition-all shrink-0 gap-1"
+                  title="新增"
+                >
+                  <LIcon name="plus" size={20}/>
+                  <span className="text-[10px] font-medium">新增</span>
+                </button>
+              </div>
+            </div>
+
+            {/* RIGHT (simple tips panel) */}
+            <div className="lg:col-span-3 bg-white rounded-xl shadow-lg border border-gray-100 p-4 h-full">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="bg-gray-100 p-2 rounded-lg"><LIcon name="sparkles" size={18}/></div>
+                <div className="font-bold">使用提示</div>
+              </div>
+              <div className="text-sm text-gray-600 leading-relaxed space-y-2">
+                <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+                  <div className="font-bold text-gray-700 mb-1">1) 先選文字框再調工具</div>
+                  <div className="text-xs text-gray-500">點左側任一文字框（主標/副標/內文），再用中間工具列調色、字距、特效。</div>
+                </div>
+                <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+                  <div className="font-bold text-gray-700 mb-1">2) 下載失敗？用「上傳背景圖」</div>
+                  <div className="text-xs text-gray-500">外部圖片可能被 CORS 擋住；上傳本機圖片後再下載通常最穩。</div>
+                </div>
+                <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+                  <div className="font-bold text-gray-700 mb-1">3) AI 功能需要 API Key</div>
+                  <div className="text-xs text-gray-500">在左側 AI 面板貼上 Gemini Key，即可生成企劃、或腳本匯入拆頁。</div>
+                </div>
+                <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-100">
+                  <div className="font-bold text-yellow-800 mb-1">小提醒</div>
+                  <div className="text-xs text-yellow-700">GitHub Pages 是公開網站，不建議放高權限金鑰。</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
